@@ -1,0 +1,6 @@
+@mwanzo_HostAddress = http://localhost:5101
+
+GET {{mwanzo_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
