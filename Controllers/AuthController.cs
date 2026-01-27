@@ -4,7 +4,7 @@ using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
-//using mwanzo.Dtos;
+using mwanzo.Models; // Add this
 using System.Net.Mail;
 
 namespace mwanzo.Controllers
@@ -13,18 +13,19 @@ namespace mwanzo.Controllers
     [Route("api/[controller]")]
     public class AuthController : ControllerBase
     {
-        private readonly UserManager<IdentityUser> _userManager;
+        private readonly UserManager<ApplicationUser> _userManager; // Change this line
         private readonly IConfiguration _config;
 
-        public AuthController(UserManager<IdentityUser> userManager, IConfiguration config)
+        public AuthController(UserManager<ApplicationUser> userManager, IConfiguration config) // Change this line
         {
             _userManager = userManager;
             _config = config;
+
         }
 
        
         [HttpPost("register")]
-        public async Task<IActionResult> Register(string email, string password)
+        public async Task<IActionResult> Register(string email, string password, string firstName, string lastName, UserRole role, string? admissionNumber = null)
         {
             try
             {
@@ -35,16 +36,21 @@ namespace mwanzo.Controllers
                 return BadRequest(new { Message = "Invalid email format" });
             }
 
-            var user = new IdentityUser
+            var user = new ApplicationUser
             {
                 UserName = email,
-                Email = email
+                Email = email,
+                FirstName = firstName,
+                LastName = lastName,
+                Role = role,
+                AdmissionNumber = admissionNumber // Only for students
             };
 
             var result = await _userManager.CreateAsync(user, password);
+            if (!result.Succeeded) return BadRequest(result.Errors);
 
-            if (!result.Succeeded)
-                return BadRequest(result.Errors);
+            // Assign role
+            await _userManager.AddToRoleAsync(user, role.ToString());
 
             var token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
 
