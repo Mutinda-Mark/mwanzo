@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using AutoMapper;
 using mwanzo.Data;
+using mwanzo.DTOs;
 using mwanzo.Models;
 using mwanzo.Services;
 
@@ -14,57 +16,56 @@ namespace mwanzo.Controllers
     {
         private readonly ApplicationDbContext _context;
         private readonly AuditService _auditService;
+        private readonly IMapper _mapper;
 
-        public AttendanceController(ApplicationDbContext context, AuditService auditService)
+        public AttendanceController(ApplicationDbContext context, AuditService auditService, IMapper mapper)
         {
             _context = context;
             _auditService = auditService;
+            _mapper = mapper;
         }
 
         [HttpPost("mark")]
         [Authorize(Roles = "Teacher")]
-        public async Task<IActionResult> MarkAttendance([FromBody] Attendance attendance)
+        public async Task<IActionResult> MarkAttendance([FromBody] AttendanceCreateDto dto)
         {
-            if (!ModelState.IsValid) return BadRequest(ModelState);
+            var exists = await _context.Attendances
+                .AnyAsync(a => a.StudentId == dto.StudentId && a.Date.Date == dto.Date.Date);
 
-            if (attendance.Date.Date < DateTime.Today) return BadRequest("Cannot edit past attendance");
+            if (exists) return BadRequest("Attendance already marked");
 
-            var existing = await _context.Attendances
-                .FirstOrDefaultAsync(a => a.StudentId == attendance.StudentId && a.Date == attendance.Date);
-            if (existing != null) return BadRequest("Attendance already marked");
-
-            attendance.IsLocked = true; // Lock immediately
+            var attendance = _mapper.Map<Attendance>(dto);
+            attendance.IsLocked = true;
             _context.Attendances.Add(attendance);
             await _context.SaveChangesAsync();
             await _auditService.LogAsync("Marked", "Attendance", attendance.Id.ToString());
-            return Ok(attendance);
+
+            return Ok(_mapper.Map<AttendanceResponseDto>(attendance));
         }
 
         [HttpGet("student/{studentId}")]
-        [Authorize]
         public async Task<IActionResult> GetAttendance(int studentId, DateTime? startDate, DateTime? endDate)
         {
-            var query = _context.Attendances.Where(a => a.StudentId == studentId);
+            var query = _context.Attendances.Include(a => a.Student).ThenInclude(s => s.User).Where(a => a.StudentId == studentId);
             if (startDate.HasValue) query = query.Where(a => a.Date >= startDate);
             if (endDate.HasValue) query = query.Where(a => a.Date <= endDate);
+
             var attendances = await query.ToListAsync();
-            return Ok(attendances);
+            return Ok(_mapper.Map<List<AttendanceResponseDto>>(attendances));
         }
 
         [HttpPut("{id}")]
         [Authorize(Roles = "Teacher")]
-        public async Task<IActionResult> UpdateAttendance(int id, [FromBody] Attendance updatedAttendance)
+        public async Task<IActionResult> UpdateAttendance(int id, [FromBody] AttendanceUpdateDto dto)
         {
-            if (!ModelState.IsValid) return BadRequest(ModelState);
-
             var attendance = await _context.Attendances.FindAsync(id);
             if (attendance == null || attendance.IsLocked) return BadRequest("Attendance not found or locked");
 
-            attendance.IsPresent = updatedAttendance.IsPresent;
-            attendance.Notes = updatedAttendance.Notes;
+            _mapper.Map(dto, attendance);
             await _context.SaveChangesAsync();
             await _auditService.LogAsync("Updated", "Attendance", id.ToString());
-            return Ok(attendance);
+
+            return Ok(_mapper.Map<AttendanceResponseDto>(attendance));
         }
 
         [HttpDelete("{id}")]
@@ -77,8 +78,8 @@ namespace mwanzo.Controllers
             _context.Attendances.Remove(attendance);
             await _context.SaveChangesAsync();
             await _auditService.LogAsync("Deleted", "Attendance", id.ToString());
+
             return NoContent();
         }
-
     }
 }

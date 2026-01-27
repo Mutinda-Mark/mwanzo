@@ -1,10 +1,9 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using AutoMapper;
 using mwanzo.Data;
-using mwanzo.Models;
-using System.Linq;
-using System.Security.Claims;
+using mwanzo.DTOs;
 
 namespace mwanzo.Controllers
 {
@@ -14,81 +13,82 @@ namespace mwanzo.Controllers
     public class DashboardController : ControllerBase
     {
         private readonly ApplicationDbContext _context;
+        private readonly IMapper _mapper;
 
-        public DashboardController(ApplicationDbContext context)
+        public DashboardController(ApplicationDbContext context, IMapper mapper)
         {
             _context = context;
+            _mapper = mapper;
         }
-    
+
         [HttpGet("admin")]
         [Authorize(Roles = "Admin")]
-        public async Task<IActionResult> GetAdminOverview()
+        public async Task<IActionResult> AdminDashboard()
         {
-            var totalStudents = await _context.Students.CountAsync();
-            var totalTeachers = await _context.Teachers.CountAsync();
-            var totalClasses = await _context.Classes.CountAsync();
-            var totalExams = await _context.Exams.CountAsync();
-
-            return Ok(new
+            var dto = new AdminDashboardDto
             {
-                TotalStudents = totalStudents,
-                TotalTeachers = totalTeachers,
-                TotalClasses = totalClasses,
-                TotalExams = totalExams
-            });
+                TotalStudents = await _context.Students.CountAsync(),
+                TotalTeachers = await _context.Teachers.CountAsync(),
+                TotalClasses = await _context.Classes.CountAsync(),
+                TotalExams = await _context.Exams.CountAsync()
+            };
+
+            return Ok(dto);
         }
 
         [HttpGet("teacher")]
         [Authorize(Roles = "Teacher")]
-        public async Task<IActionResult> GetTeacherWorkload()
+        public async Task<IActionResult> TeacherDashboard()
         {
-            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (string.IsNullOrEmpty(userId)) return Unauthorized();
+            var teacherClaim = User.FindFirst("TeacherId")?.Value;
+            if (teacherClaim == null) return Unauthorized();
+            var teacherId = int.Parse(teacherClaim);
 
-            var teacher = await _context.Teachers
-                .Include(t => t.SubjectAssignments)
-                .ThenInclude(sa => sa.Class)
-                .FirstOrDefaultAsync(t => t.UserId == userId);
+            var classes = await _context.SubjectAssignments
+                .Where(sa => sa.TeacherId == teacherId)
+                .Select(sa => sa.Class)
+                .Distinct()
+                .ToListAsync();
 
-            if (teacher == null) return NotFound();
+            var totalStudents = classes.Sum(c => c.Students.Count);
+            var totalExams = await _context.Exams.CountAsync(e => classes.Select(c => c.Id).Contains(e.ClassId));
 
-            var assignedClasses = teacher.SubjectAssignments.Select(sa => sa.Class.Name).Distinct().ToList();
-            var totalAssignments = teacher.SubjectAssignments.Count;
-
-            return Ok(new
+            var dto = new TeacherDashboardDto
             {
-                AssignedClasses = assignedClasses,
-                TotalSubjectAssignments = totalAssignments
-            });
+                TotalClasses = classes.Count,
+                TotalStudents = totalStudents,
+                TotalExams = totalExams
+            };
+
+            return Ok(dto);
         }
 
         [HttpGet("student")]
         [Authorize(Roles = "Student")]
-        public async Task<IActionResult> GetStudentPerformance()
+        public async Task<IActionResult> StudentDashboard()
         {
-            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (string.IsNullOrEmpty(userId)) return Unauthorized();
+            var studentClaim = User.FindFirst("StudentId")?.Value;
+            if (studentClaim == null) return Unauthorized();
+            var studentId = int.Parse(studentClaim);
 
             var student = await _context.Students
+                .Include(s => s.Class)
                 .Include(s => s.Grades)
-                .ThenInclude(g => g.Exam)
-                .FirstOrDefaultAsync(s => s.UserId == userId);
+                    .ThenInclude(g => g.Exam)
+                .FirstOrDefaultAsync(s => s.Id == studentId);
 
             if (student == null) return NotFound();
 
-            var averageGrade = student.Grades.Any() ? student.Grades.Average(g => g.Marks) : 0;
-            var totalExams = student.Grades.Count;
-            var attendanceRate = await _context.Attendances
-                .Where(a => a.StudentId == student.Id)
-                .Select(a => a.IsPresent ? 1 : 0)
-                .AverageAsync() * 100;
+            var average = student.Grades.Any() ? (double)student.Grades.Average(g => g.Marks) : 0;
 
-            return Ok(new
+            var dto = new StudentDashboardDto
             {
-                AverageGrade = averageGrade,
-                TotalExams = totalExams,
-                AttendanceRate = attendanceRate
-            });
+                ClassName = student.Class?.Name ?? "",
+                TotalExams = student.Grades.Count,
+                AverageGrade = average
+            };
+
+            return Ok(dto);
         }
     }
 }

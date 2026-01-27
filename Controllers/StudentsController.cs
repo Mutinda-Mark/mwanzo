@@ -1,10 +1,11 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using AutoMapper;
 using mwanzo.Data;
+using mwanzo.DTOs;
 using mwanzo.Models;
 using mwanzo.Services;
-using System.Linq;
 
 namespace mwanzo.Controllers
 {
@@ -15,83 +16,57 @@ namespace mwanzo.Controllers
     {
         private readonly ApplicationDbContext _context;
         private readonly AuditService _auditService;
+        private readonly IMapper _mapper;
 
-        public StudentsController(ApplicationDbContext context, AuditService auditService)
+        public StudentsController(ApplicationDbContext context, AuditService auditService, IMapper mapper)
         {
             _context = context;
             _auditService = auditService;
+            _mapper = mapper;
         }
 
         [HttpPost]
         [Authorize(Roles = "Admin")]
-        public async Task<IActionResult> CreateStudent([FromBody] Student student)
+        public async Task<IActionResult> CreateStudent([FromBody] StudentCreateDto dto)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
 
-            // Validate user exists and is a student
-            var user = await _context.Users.FindAsync(student.UserId);
+            var user = await _context.Users.FindAsync(dto.UserId);
             if (user == null || user.Role != UserRole.Student) return BadRequest("Invalid user or role");
 
+            var student = _mapper.Map<Student>(dto);
             _context.Students.Add(student);
             await _context.SaveChangesAsync();
-            await _auditService.LogAsync("Created", "Student", student.Id.ToString(), $"Student {student.Id} created");
-            return CreatedAtAction(nameof(GetStudent), new { id = student.Id }, student);
-        }
+            await _auditService.LogAsync("Created", "Student", student.Id.ToString());
 
-        [HttpGet]
-        [Authorize(Roles = "Admin,Teacher")]
-        public async Task<IActionResult> GetStudents(int? classId, string? status, int page = 1, int pageSize = 10)
-        {
-            var query = _context.Students
-                .Include(s => s.User)
-                .Include(s => s.Class)
-                .AsQueryable();
-
-            if (classId.HasValue) query = query.Where(s => s.ClassId == classId);
-            if (!string.IsNullOrEmpty(status))
-            {
-                if (Enum.TryParse<UserStatus>(status, out var userStatus))
-                    query = query.Where(s => s.User.Status == userStatus);
-            }
-
-            var total = await query.CountAsync();
-            var students = await query
-                .Skip((page - 1) * pageSize)
-                .Take(pageSize)
-                .ToListAsync();
-
-            return Ok(new { Total = total, Page = page, PageSize = pageSize, Data = students });
+            var response = _mapper.Map<StudentResponseDto>(student);
+            return CreatedAtAction(nameof(GetStudent), new { id = student.Id }, response);
         }
 
         [HttpGet("{id}")]
-        [Authorize]
         public async Task<IActionResult> GetStudent(int id)
         {
             var student = await _context.Students
                 .Include(s => s.User)
                 .Include(s => s.Class)
-                .Include(s => s.Attendances)
-                .Include(s => s.Grades)
                 .FirstOrDefaultAsync(s => s.Id == id);
 
             if (student == null) return NotFound();
-            return Ok(student);
+            return Ok(_mapper.Map<StudentResponseDto>(student));
         }
 
         [HttpPut("{id}")]
         [Authorize(Roles = "Admin")]
-        public async Task<IActionResult> UpdateStudent(int id, [FromBody] Student updatedStudent)
+        public async Task<IActionResult> UpdateStudent(int id, [FromBody] StudentUpdateDto dto)
         {
-            if (!ModelState.IsValid) return BadRequest(ModelState);
-
             var student = await _context.Students.FindAsync(id);
             if (student == null) return NotFound();
 
-            student.ClassId = updatedStudent.ClassId;
-            student.EnrollmentDate = updatedStudent.EnrollmentDate;
+            _mapper.Map(dto, student);
             await _context.SaveChangesAsync();
-            await _auditService.LogAsync("Updated", "Student", id.ToString(), $"Student {id} updated");
-            return Ok(student);
+            await _auditService.LogAsync("Updated", "Student", id.ToString());
+
+            return Ok(_mapper.Map<StudentResponseDto>(student));
         }
 
         [HttpDelete("{id}")]
@@ -103,7 +78,8 @@ namespace mwanzo.Controllers
 
             _context.Students.Remove(student);
             await _context.SaveChangesAsync();
-            await _auditService.LogAsync("Deleted", "Student", id.ToString(), $"Student {id} deleted");
+            await _auditService.LogAsync("Deleted", "Student", id.ToString());
+
             return NoContent();
         }
     }

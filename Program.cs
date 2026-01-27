@@ -3,17 +3,23 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using mwanzo.Data;
-using mwanzo.Models; // Add this line
-using mwanzo.Services; // Add this for AuditService
+using mwanzo.Models;
+using mwanzo.Services;
+using AutoMapper; // AutoMapper namespace
+using mwanzo.MappingProfiles; // Your mapping profile namespace
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Database
+// --------------------
+// Database Configuration
+// --------------------
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// Identity + Password Policy
+// --------------------
+// Identity Configuration + Password Policy
+// --------------------
 builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
 {
     options.Password.RequiredLength = 8;
@@ -22,12 +28,14 @@ builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
     options.Password.RequireDigit = true;
     options.Password.RequireNonAlphanumeric = true;
 
-    options.SignIn.RequireConfirmedEmail = true;
+    options.SignIn.RequireConfirmedEmail = true; // require email confirmation
 })
 .AddEntityFrameworkStores<ApplicationDbContext>()
 .AddDefaultTokenProviders();
 
-// JWT
+// --------------------
+// JWT Authentication
+// --------------------
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -48,7 +56,15 @@ builder.Services.AddAuthentication(options =>
     };
 });
 
-// Add missing services from the guide
+// --------------------
+// AutoMapper Configuration
+// --------------------
+builder.Services.AddAutoMapper(typeof(AppMappingProfile)); 
+// This automatically registers your DTO mappings from AppMappingProfile.cs
+
+// --------------------
+// Other Services
+// --------------------
 builder.Services.AddScoped<AuditService>();
 builder.Services.AddHttpContextAccessor();
 
@@ -56,14 +72,19 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-
+// --------------------
+// Build the App
+// --------------------
 var app = builder.Build();
 
-// Role seeding (moved here with try-catch for robustness)
+// --------------------
+// Role Seeding (Admin, Teacher, Student, Parent)
+// --------------------
 using (var scope = app.Services.CreateScope())
 {
     var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
     var roles = new[] { "Admin", "Teacher", "Student", "Parent" };
+
     try
     {
         foreach (var role in roles)
@@ -74,17 +95,24 @@ using (var scope = app.Services.CreateScope())
     }
     catch (Exception ex)
     {
-        // Log or handle seeding errors (e.g., database not ready)
         Console.WriteLine($"Error seeding roles: {ex.Message}");
     }
 }
 
-app.UseSwagger();
-app.UseSwaggerUI();
+// --------------------
+// Middleware Pipeline
+// --------------------
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
 
 app.UseHttpsRedirection();
-app.UseAuthentication();
+
+app.UseAuthentication(); // must come before authorization
 app.UseAuthorization();
 
 app.MapControllers();
+
 app.Run();

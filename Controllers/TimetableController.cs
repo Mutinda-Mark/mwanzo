@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using AutoMapper;
 using mwanzo.Data;
+using mwanzo.DTOs;
 using mwanzo.Models;
 using mwanzo.Services;
 
@@ -14,76 +16,74 @@ namespace mwanzo.Controllers
     {
         private readonly ApplicationDbContext _context;
         private readonly AuditService _auditService;
+        private readonly IMapper _mapper;
 
-        public TimetableController(ApplicationDbContext context, AuditService auditService)
+        public TimetableController(ApplicationDbContext context, AuditService auditService, IMapper mapper)
         {
             _context = context;
             _auditService = auditService;
+            _mapper = mapper;
         }
 
         [HttpPost]
         [Authorize(Roles = "Admin")]
-        public async Task<IActionResult> CreateTimetableEntry([FromBody] TimetableEntry entry)
+        public async Task<IActionResult> CreateTimetable([FromBody] TimetableCreateDto dto)
         {
-            if (!ModelState.IsValid) return BadRequest(ModelState);
-
-            // Business rule: No conflicts (same class, day, overlapping time)
             var conflict = await _context.TimetableEntries
-                .AnyAsync(te => te.ClassId == entry.ClassId && te.Day == entry.Day &&
-                                ((entry.StartTime < te.EndTime && entry.EndTime > te.StartTime)));
+                .AnyAsync(te => te.ClassId == dto.ClassId && te.Day == dto.Day &&
+                                dto.StartTime < te.EndTime && dto.EndTime > te.StartTime);
             if (conflict) return BadRequest("Timetable conflict detected");
 
+            var entry = _mapper.Map<TimetableEntry>(dto);
             _context.TimetableEntries.Add(entry);
             await _context.SaveChangesAsync();
             await _auditService.LogAsync("Created", "TimetableEntry", entry.Id.ToString());
-            return Ok(entry);
+
+            return Ok(_mapper.Map<TimetableResponseDto>(entry));
         }
 
         [HttpGet("{classId}")]
-        [Authorize(Roles = "Admin,Teacher,Student")]
         public async Task<IActionResult> GetTimetable(int classId)
         {
-            var timetable = await _context.TimetableEntries
-                .Where(te => te.ClassId == classId)
+            var entries = await _context.TimetableEntries
+                .Include(te => te.Class)
                 .Include(te => te.Subject)
+                .Where(te => te.ClassId == classId)
                 .ToListAsync();
-            return Ok(timetable);
+
+            return Ok(_mapper.Map<List<TimetableResponseDto>>(entries));
         }
 
         [HttpPut("{id}")]
         [Authorize(Roles = "Admin")]
-        public async Task<IActionResult> UpdateTimetableEntry(int id, [FromBody] TimetableEntry updatedEntry)
+        public async Task<IActionResult> UpdateTimetable(int id, [FromBody] TimetableCreateDto dto)
         {
-            if (!ModelState.IsValid) return BadRequest(ModelState);
-
             var entry = await _context.TimetableEntries.FindAsync(id);
             if (entry == null) return NotFound();
 
-            // Check for conflicts with the updated times
             var conflict = await _context.TimetableEntries
-                .Where(te => te.Id != id) // Exclude current entry
-                .AnyAsync(te => te.ClassId == updatedEntry.ClassId && te.Day == updatedEntry.Day &&
-                                ((updatedEntry.StartTime < te.EndTime && updatedEntry.EndTime > te.StartTime)));
-            if (conflict) return BadRequest("Timetable conflict detected with updated times");
+                .Where(te => te.Id != id && te.ClassId == dto.ClassId && te.Day == dto.Day)
+                .AnyAsync(te => dto.StartTime < te.EndTime && dto.EndTime > te.StartTime);
+            if (conflict) return BadRequest("Timetable conflict detected");
 
-            entry.Day = updatedEntry.Day;
-            entry.StartTime = updatedEntry.StartTime;
-            entry.EndTime = updatedEntry.EndTime;
+            _mapper.Map(dto, entry);
             await _context.SaveChangesAsync();
-            await _auditService.LogAsync("Updated", "TimetableEntry", id.ToString(), $"TimetableEntry {id} updated");
-            return Ok(entry);
+            await _auditService.LogAsync("Updated", "TimetableEntry", id.ToString());
+
+            return Ok(_mapper.Map<TimetableResponseDto>(entry));
         }
 
         [HttpDelete("{id}")]
         [Authorize(Roles = "Admin")]
-        public async Task<IActionResult> DeleteTimetableEntry(int id)
+        public async Task<IActionResult> DeleteTimetable(int id)
         {
             var entry = await _context.TimetableEntries.FindAsync(id);
             if (entry == null) return NotFound();
 
             _context.TimetableEntries.Remove(entry);
             await _context.SaveChangesAsync();
-            await _auditService.LogAsync("Deleted", "TimetableEntry", id.ToString(), $"TimetableEntry {id} deleted");
+            await _auditService.LogAsync("Deleted", "TimetableEntry", id.ToString());
+
             return NoContent();
         }
     }

@@ -4,7 +4,9 @@ using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
-using mwanzo.Models; // Add this
+using AutoMapper;
+using mwanzo.DTOs;
+using mwanzo.Models;
 using System.Net.Mail;
 
 namespace mwanzo.Controllers
@@ -13,23 +15,23 @@ namespace mwanzo.Controllers
     [Route("api/[controller]")]
     public class AuthController : ControllerBase
     {
-        private readonly UserManager<ApplicationUser> _userManager; // Change this line
+        private readonly UserManager<ApplicationUser> _userManager;
         private readonly IConfiguration _config;
 
-        public AuthController(UserManager<ApplicationUser> userManager, IConfiguration config) // Change this line
+        public AuthController(UserManager<ApplicationUser> userManager, IConfiguration config)
         {
             _userManager = userManager;
             _config = config;
-
         }
 
-       
         [HttpPost("register")]
-        public async Task<IActionResult> Register(string email, string password, string firstName, string lastName, UserRole role, string? admissionNumber = null)
+        public async Task<IActionResult> Register([FromBody] RegisterRequestDto dto)
         {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+
             try
             {
-                var mail = new MailAddress(email);
+                _ = new MailAddress(dto.Email);
             }
             catch
             {
@@ -38,92 +40,74 @@ namespace mwanzo.Controllers
 
             var user = new ApplicationUser
             {
-                UserName = email,
-                Email = email,
-                FirstName = firstName,
-                LastName = lastName,
-                Role = role,
-                AdmissionNumber = admissionNumber // Only for students
+                UserName = dto.Email,
+                Email = dto.Email,
+                FirstName = dto.FirstName,
+                LastName = dto.LastName,
+                Role = dto.Role,
+                AdmissionNumber = dto.AdmissionNumber
             };
 
-            var result = await _userManager.CreateAsync(user, password);
+            var result = await _userManager.CreateAsync(user, dto.Password);
             if (!result.Succeeded) return BadRequest(result.Errors);
 
-            // Assign role
-            await _userManager.AddToRoleAsync(user, role.ToString());
+            await _userManager.AddToRoleAsync(user, dto.Role.ToString());
 
             var token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
-
             var confirmLink = Url.Action(nameof(ConfirmEmail), "Auth",
                 new { userId = user.Id, token }, Request.Scheme);
 
-            return Ok(new
+            var response = new AuthResponseDto
             {
                 Message = "User registered. Please confirm email.",
                 UserId = user.Id,
                 Token = token,
                 ConfirmLink = confirmLink
-            });
+            };
+
+            return Ok(response);
         }
 
         [HttpGet("confirm-email")]
         public async Task<IActionResult> ConfirmEmail(string userId, string token)
         {
             var user = await _userManager.FindByIdAsync(userId);
-            if (user == null) 
-                return BadRequest(new { Message = "Invalid user" });
+            if (user == null) return BadRequest(new { Message = "Invalid user" });
 
             var result = await _userManager.ConfirmEmailAsync(user, token);
-            if (!result.Succeeded) 
-                return BadRequest(new { Message = "Email confirmation failed" });
+            if (!result.Succeeded) return BadRequest(new { Message = "Email confirmation failed" });
 
-            return Ok(new 
-            { 
-                Message = "Email confirmed successfully",
-                UserId = user.Id
-            });
+            return Ok(new { Message = "Email confirmed successfully", UserId = user.Id });
         }
 
-
         [HttpPost("login")]
-        public async Task<IActionResult> Login(string email, string password)
+        public async Task<IActionResult> Login([FromBody] LoginRequestDto dto)
         {
-            var user = await _userManager.FindByEmailAsync(email);
+            var user = await _userManager.FindByEmailAsync(dto.Email);
 
-            // Check if user exists, email confirmed, and password is correct
-            var loginSuccessful = user != null 
-                                && user.EmailConfirmed 
-                                && await _userManager.CheckPasswordAsync(user, password);
-
-            if (!loginSuccessful)
-            {
-                // Generic error message for security
+            if (user == null || !user.EmailConfirmed || !await _userManager.CheckPasswordAsync(user, dto.Password))
                 return Unauthorized(new { Message = "Invalid login credentials" });
-            }
 
-            // Create JWT claims
             var claims = new[]
             {
                 new Claim(JwtRegisteredClaimNames.Sub, user.Email),
-                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+                new Claim(ClaimTypes.NameIdentifier, user.Id),
+                new Claim(ClaimTypes.Role, user.Role.ToString())
             };
 
-            var key = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(_config["Jwt:Key"]));
+            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"]));
+            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
             var token = new JwtSecurityToken(
                 issuer: _config["Jwt:Issuer"],
                 audience: _config["Jwt:Audience"],
                 claims: claims,
-                expires: DateTime.Now.AddMinutes(60),
-                signingCredentials: new SigningCredentials(key, SecurityAlgorithms.HmacSha256)
+                expires: DateTime.Now.AddHours(1),
+                signingCredentials: creds
             );
 
-            return Ok(new
-            {
-                Token = new JwtSecurityTokenHandler().WriteToken(token)
-            });
+            return Ok(new { Token = new JwtSecurityTokenHandler().WriteToken(token) });
         }
-
     }
 }
