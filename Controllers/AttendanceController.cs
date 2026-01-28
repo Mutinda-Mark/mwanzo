@@ -26,7 +26,7 @@ namespace mwanzo.Controllers
         }
 
         [HttpPost("mark")]
-        [Authorize(Roles = "Teacher")]
+        [Authorize(Roles = "Admin,Teacher")]
         public async Task<IActionResult> MarkAttendance([FromBody] AttendanceCreateDto dto)
         {
             var exists = await _context.Attendances
@@ -55,7 +55,7 @@ namespace mwanzo.Controllers
         }
 
         [HttpPut("{id}")]
-        [Authorize(Roles = "Teacher")]
+        [Authorize(Roles = "Admin,Teacher")]
         public async Task<IActionResult> UpdateAttendance(int id, [FromBody] AttendanceUpdateDto dto)
         {
             var attendance = await _context.Attendances.FindAsync(id);

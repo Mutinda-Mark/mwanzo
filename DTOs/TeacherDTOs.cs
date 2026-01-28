@@ -14,13 +14,14 @@ namespace mwanzo.DTOs
         public string UserId { get; set; } = string.Empty;
         public string FirstName { get; set; } = string.Empty;
         public string LastName { get; set; } = string.Empty;
+        public string Email { get; set; }
         public List<SubjectAssignmentResponseDto> SubjectAssignments { get; set; } = new();
     }
 
     public class SubjectAssignmentCreateDto
     {
         [Required]
-        public int TeacherId { get; set; }
+        public string TeacherId { get; set; }
 
         [Required]
         public int SubjectId { get; set; }

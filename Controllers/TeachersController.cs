@@ -1,11 +1,10 @@
+using AutoMapper;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using AutoMapper;
 using mwanzo.Data;
 using mwanzo.DTOs;
 using mwanzo.Models;
-using mwanzo.Services;
 
 namespace mwanzo.Controllers
 {
@@ -15,31 +14,35 @@ namespace mwanzo.Controllers
     public class TeachersController : ControllerBase
     {
         private readonly ApplicationDbContext _context;
-        private readonly AuditService _auditService;
         private readonly IMapper _mapper;
 
-        public TeachersController(ApplicationDbContext context, AuditService auditService, IMapper mapper)
+        public TeachersController(ApplicationDbContext context, IMapper mapper)
         {
             _context = context;
-            _auditService = auditService;
             _mapper = mapper;
         }
 
+        // Create a teacher
         [HttpPost]
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> CreateTeacher([FromBody] TeacherCreateDto dto)
         {
             var user = await _context.Users.FindAsync(dto.UserId);
-            if (user == null || user.Role != UserRole.Teacher) return BadRequest("Invalid user or role");
+            if (user == null) return BadRequest("Invalid user");
 
-            var teacher = _mapper.Map<Teacher>(dto);
+            var teacher = new Teacher
+            {
+                UserId = dto.UserId
+            };
+
             _context.Teachers.Add(teacher);
             await _context.SaveChangesAsync();
-            await _auditService.LogAsync("Created", "Teacher", teacher.Id.ToString());
 
-            return CreatedAtAction(nameof(GetTeacher), new { id = teacher.Id }, _mapper.Map<TeacherResponseDto>(teacher));
+            var response = _mapper.Map<TeacherResponseDto>(teacher);
+            return Ok(response);
         }
 
+        // Get all teachers
         [HttpGet]
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> GetTeachers()
@@ -47,44 +50,82 @@ namespace mwanzo.Controllers
             var teachers = await _context.Teachers
                 .Include(t => t.User)
                 .Include(t => t.SubjectAssignments)
-                    .ThenInclude(sa => sa.Subject)
-                .Include(t => t.SubjectAssignments)
                     .ThenInclude(sa => sa.Class)
+                .Include(t => t.SubjectAssignments)
+                    .ThenInclude(sa => sa.Subject)
                 .ToListAsync();
 
-            return Ok(_mapper.Map<List<TeacherResponseDto>>(teachers));
+            var response = _mapper.Map<List<TeacherResponseDto>>(teachers);
+            return Ok(response);
         }
 
-        [HttpGet("{id}")]
-        public async Task<IActionResult> GetTeacher(int id)
-        {
-            var teacher = await _context.Teachers
-                .Include(t => t.User)
-                .Include(t => t.SubjectAssignments)
-                    .ThenInclude(sa => sa.Subject)
-                .Include(t => t.SubjectAssignments)
-                    .ThenInclude(sa => sa.Class)
-                .FirstOrDefaultAsync(t => t.Id == id);
-
-            if (teacher == null) return NotFound();
-            return Ok(_mapper.Map<TeacherResponseDto>(teacher));
-        }
-
+        // Assign subject to teacher
+        // Assign subjects to teachers - improved
         [HttpPost("assign-subject")]
         [Authorize(Roles = "Admin")]
-        public async Task<IActionResult> AssignSubject([FromBody] SubjectAssignmentCreateDto dto)
+        public async Task<IActionResult> AssignSubjects([FromBody] List<SubjectAssignmentCreateDto> dtos)
         {
-            var exists = await _context.SubjectAssignments
-                .AnyAsync(sa => sa.SubjectId == dto.SubjectId && sa.ClassId == dto.ClassId);
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
 
-            if (exists) return BadRequest("Subject already assigned for this class");
+            var assigned = new List<SubjectAssignmentResponseDto>();
+            var skipped = new List<SubjectAssignmentCreateDto>();
 
-            var assignment = _mapper.Map<SubjectAssignment>(dto);
-            _context.SubjectAssignments.Add(assignment);
-            await _context.SaveChangesAsync();
-            await _auditService.LogAsync("Assigned", "SubjectAssignment", assignment.Id.ToString());
+            foreach (var dto in dtos)
+            {
+                // Find teacher
+                var teacher = await _context.Teachers
+                    .FirstOrDefaultAsync(t => t.UserId == dto.TeacherId);
+                if (teacher == null)
+                {
+                    skipped.Add(dto);
+                    continue; // skip invalid teacher
+                }
 
-            return Ok(_mapper.Map<SubjectAssignmentResponseDto>(assignment));
+                // Check class and subject exist
+                var cls = await _context.Classes.FindAsync(dto.ClassId);
+                var subject = await _context.Subjects.FindAsync(dto.SubjectId);
+                if (cls == null || subject == null)
+                {
+                    skipped.Add(dto);
+                    continue; // skip invalid class/subject
+                }
+
+                // Check if this Subject+Class already exists
+                bool exists = await _context.SubjectAssignments
+                    .AnyAsync(sa => sa.SubjectId == dto.SubjectId && sa.ClassId == dto.ClassId);
+
+                if (exists)
+                {
+                    skipped.Add(dto); // duplicate, skip
+                    continue;
+                }
+
+                // Create assignment
+                var assignment = new SubjectAssignment
+                {
+                    TeacherId = teacher.Id,
+                    SubjectId = dto.SubjectId,
+                    ClassId = dto.ClassId
+                };
+
+                _context.SubjectAssignments.Add(assignment);
+                await _context.SaveChangesAsync();
+
+                assigned.Add(_mapper.Map<SubjectAssignmentResponseDto>(assignment));
+            }
+
+            // Return summary
+            return Ok(new
+            {
+                AssignedCount = assigned.Count,
+                SkippedCount = skipped.Count,
+                Assigned = assigned,
+                Skipped = skipped
+            });
         }
+
+
+
     }
 }

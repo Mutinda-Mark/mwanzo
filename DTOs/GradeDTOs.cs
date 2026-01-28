@@ -24,9 +24,9 @@ namespace mwanzo.DTOs
     {
         public int Id { get; set; }
         public int StudentId { get; set; }
-        public string StudentName { get; set; } = string.Empty;
+        public string StudentName { get; set; } 
         public int ExamId { get; set; }
-        public string ExamName { get; set; } = string.Empty;
+        public string ExamName { get; set; }
         public decimal Marks { get; set; }
         public string? Comments { get; set; }
     }
