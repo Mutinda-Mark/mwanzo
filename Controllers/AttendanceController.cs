@@ -58,15 +58,35 @@ namespace mwanzo.Controllers
         [Authorize(Roles = "Admin,Teacher")]
         public async Task<IActionResult> UpdateAttendance(int id, [FromBody] AttendanceUpdateDto dto)
         {
-            var attendance = await _context.Attendances.FindAsync(id);
-            if (attendance == null || attendance.IsLocked) return BadRequest("Attendance not found or locked");
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var attendance = await _context.Attendances
+                .Include(a => a.Student)
+                    .ThenInclude(s => s.User)
+                .FirstOrDefaultAsync(a => a.Id == id);
+
+            if (attendance == null)
+                return NotFound("Attendance record not found.");
+
+            // 🔓 LOCK IS INTENTIONALLY IGNORED
+            // attendance.IsLocked is no longer blocking updates
 
             _mapper.Map(dto, attendance);
-            await _context.SaveChangesAsync();
-            await _auditService.LogAsync("Updated", "Attendance", id.ToString());
 
-            return Ok(_mapper.Map<AttendanceResponseDto>(attendance));
+            await _context.SaveChangesAsync();
+
+            await _auditService.LogAsync(
+                action: "Updated",
+                entity: "Attendance",
+                entityId: attendance.Id.ToString()
+            );
+
+            var response = _mapper.Map<AttendanceResponseDto>(attendance);
+
+            return Ok(response);
         }
+
 
         [HttpDelete("{id}")]
         [Authorize(Roles = "Admin")]
