@@ -14,7 +14,8 @@ namespace mwanzo.DTOs
     public class StudentUpdateDto
     {
         public int? ClassId { get; set; }
-        public DateTime EnrollmentDate { get; set; } = DateTime.UtcNow;
+        public DateTime EnrollmentDate { get; set; }
+        //public DateTime EnrollmentDate { get; set; } = DateTime.UtcNow;
     }
 
     public class StudentResponseDto

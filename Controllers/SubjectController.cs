@@ -15,31 +15,54 @@ namespace mwanzo.Controllers
     {
         private readonly ApplicationDbContext _context;
         private readonly IMapper _mapper;
+        private readonly ILogger<SubjectsController> _logger;
 
-        public SubjectsController(ApplicationDbContext context, IMapper mapper)
+        public SubjectsController(ApplicationDbContext context, IMapper mapper, ILogger<SubjectsController> logger)
         {
             _context = context;
             _mapper = mapper;
+            _logger = logger;
         }
 
         // GET: api/Subjects
         [HttpGet]
         public async Task<IActionResult> GetSubjects()
         {
-            var subjects = await _context.Subjects.ToListAsync();
-            var response = _mapper.Map<List<SubjectResponseDto>>(subjects);
-            return Ok(response);
+            try
+            {
+                var subjects = await _context.Subjects
+                    .AsNoTracking()
+                    .ToListAsync();
+
+                return Ok(_mapper.Map<List<SubjectResponseDto>>(subjects));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving subjects");
+                return StatusCode(500, new { message = "An unexpected error occurred." });
+            }
         }
 
         // GET: api/Subjects/5
         [HttpGet("{id}")]
         public async Task<IActionResult> GetSubject(int id)
         {
-            var subject = await _context.Subjects.FindAsync(id);
-            if (subject == null) return NotFound();
+            try
+            {
+                var subject = await _context.Subjects
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(s => s.Id == id);
 
-            var response = _mapper.Map<SubjectResponseDto>(subject);
-            return Ok(response);
+                if (subject == null)
+                    return NotFound(new { message = "Subject not found" });
+
+                return Ok(_mapper.Map<SubjectResponseDto>(subject));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving subject {SubjectId}", id);
+                return StatusCode(500, new { message = "An unexpected error occurred." });
+            }
         }
 
         // POST: api/Subjects
@@ -49,12 +72,27 @@ namespace mwanzo.Controllers
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
 
-            var subject = _mapper.Map<Subject>(dto);
-            _context.Subjects.Add(subject);
-            await _context.SaveChangesAsync();
+            try
+            {
+                bool exists = await _context.Subjects
+                    .AnyAsync(s => s.Name.ToLower() == dto.Name.ToLower());
 
-            var response = _mapper.Map<SubjectResponseDto>(subject);
-            return Ok(response);
+                if (exists)
+                    return BadRequest(new { message = "Subject already exists." });
+
+                var subject = _mapper.Map<Subject>(dto);
+                _context.Subjects.Add(subject);
+                await _context.SaveChangesAsync();
+
+                var response = _mapper.Map<SubjectResponseDto>(subject);
+
+                return CreatedAtAction(nameof(GetSubject), new { id = subject.Id }, response);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating subject");
+                return StatusCode(500, new { message = "An unexpected error occurred." });
+            }
         }
 
         // PUT: api/Subjects/5
@@ -64,14 +102,28 @@ namespace mwanzo.Controllers
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
 
-            var subject = await _context.Subjects.FindAsync(id);
-            if (subject == null) return NotFound();
+            try
+            {
+                var subject = await _context.Subjects.FindAsync(id);
+                if (subject == null)
+                    return NotFound(new { message = "Subject not found" });
 
-            _mapper.Map(dto, subject);
-            await _context.SaveChangesAsync();
+                bool exists = await _context.Subjects
+                    .AnyAsync(s => s.Id != id && s.Name.ToLower() == dto.Name.ToLower());
 
-            var response = _mapper.Map<SubjectResponseDto>(subject);
-            return Ok(response);
+                if (exists)
+                    return BadRequest(new { message = "Another subject with this name already exists." });
+
+                _mapper.Map(dto, subject);
+                await _context.SaveChangesAsync();
+
+                return Ok(_mapper.Map<SubjectResponseDto>(subject));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating subject {SubjectId}", id);
+                return StatusCode(500, new { message = "An unexpected error occurred." });
+            }
         }
 
         // DELETE: api/Subjects/5
@@ -79,13 +131,27 @@ namespace mwanzo.Controllers
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> DeleteSubject(int id)
         {
-            var subject = await _context.Subjects.FindAsync(id);
-            if (subject == null) return NotFound();
+            try
+            {
+                var subject = await _context.Subjects.FindAsync(id);
+                if (subject == null)
+                    return NotFound(new { message = "Subject not found" });
 
-            _context.Subjects.Remove(subject);
-            await _context.SaveChangesAsync();
+                _context.Subjects.Remove(subject);
+                await _context.SaveChangesAsync();
 
-            return NoContent();
+                return NoContent();
+            }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogError(ex, "Foreign key conflict deleting subject {SubjectId}", id);
+                return BadRequest(new { message = "Subject cannot be deleted because it is in use." });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error deleting subject {SubjectId}", id);
+                return StatusCode(500, new { message = "An unexpected error occurred." });
+            }
         }
     }
 }

@@ -15,11 +15,13 @@ namespace mwanzo.Controllers
     {
         private readonly ApplicationDbContext _context;
         private readonly IMapper _mapper;
+        private readonly ILogger<TeachersController> _logger;
 
-        public TeachersController(ApplicationDbContext context, IMapper mapper)
+        public TeachersController(ApplicationDbContext context, IMapper mapper, ILogger<TeachersController> logger)
         {
             _context = context;
             _mapper = mapper;
+            _logger = logger;
         }
 
         // Create a teacher
@@ -27,19 +29,33 @@ namespace mwanzo.Controllers
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> CreateTeacher([FromBody] TeacherCreateDto dto)
         {
-            var user = await _context.Users.FindAsync(dto.UserId);
-            if (user == null) return BadRequest("Invalid user");
+            if (!ModelState.IsValid) return BadRequest(ModelState);
 
-            var teacher = new Teacher
+            try
             {
-                UserId = dto.UserId
-            };
+                var user = await _context.Users.FindAsync(dto.UserId);
+                if (user == null) return BadRequest(new { message = "Invalid user ID" });
 
-            _context.Teachers.Add(teacher);
-            await _context.SaveChangesAsync();
+                var teacher = new Teacher { UserId = dto.UserId };
+                _context.Teachers.Add(teacher);
+                await _context.SaveChangesAsync();
 
-            var response = _mapper.Map<TeacherResponseDto>(teacher);
-            return Ok(response);
+                var response = await _context.Teachers
+                    .Include(t => t.User)
+                    .Include(t => t.SubjectAssignments)
+                        .ThenInclude(sa => sa.Class)
+                    .Include(t => t.SubjectAssignments)
+                        .ThenInclude(sa => sa.Subject)
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(t => t.Id == teacher.Id);
+
+                return Ok(_mapper.Map<TeacherResponseDto>(response));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating teacher");
+                return StatusCode(500, new { message = "An unexpected error occurred." });
+            }
         }
 
         // Get all teachers
@@ -47,85 +63,84 @@ namespace mwanzo.Controllers
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> GetTeachers()
         {
-            var teachers = await _context.Teachers
-                .Include(t => t.User)
-                .Include(t => t.SubjectAssignments)
-                    .ThenInclude(sa => sa.Class)
-                .Include(t => t.SubjectAssignments)
-                    .ThenInclude(sa => sa.Subject)
-                .ToListAsync();
+            try
+            {
+                var teachers = await _context.Teachers
+                    .Include(t => t.User)
+                    .Include(t => t.SubjectAssignments)
+                        .ThenInclude(sa => sa.Class)
+                    .Include(t => t.SubjectAssignments)
+                        .ThenInclude(sa => sa.Subject)
+                    .AsNoTracking()
+                    .ToListAsync();
 
-            var response = _mapper.Map<List<TeacherResponseDto>>(teachers);
-            return Ok(response);
+                return Ok(_mapper.Map<List<TeacherResponseDto>>(teachers));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching teachers");
+                return StatusCode(500, new { message = "An unexpected error occurred." });
+            }
         }
 
-        // Assign subject to teacher
-        // Assign subjects to teachers - improved
+        // Assign subjects to teachers
         [HttpPost("assign-subject")]
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> AssignSubjects([FromBody] List<SubjectAssignmentCreateDto> dtos)
         {
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
+            if (!ModelState.IsValid) return BadRequest(ModelState);
 
             var assigned = new List<SubjectAssignmentResponseDto>();
             var skipped = new List<SubjectAssignmentCreateDto>();
 
-            foreach (var dto in dtos)
+            try
             {
-                // Find teacher
-                var teacher = await _context.Teachers
-                    .FirstOrDefaultAsync(t => t.UserId == dto.TeacherId);
-                if (teacher == null)
+                foreach (var dto in dtos)
                 {
-                    skipped.Add(dto);
-                    continue; // skip invalid teacher
+                    var teacher = await _context.Teachers.FirstOrDefaultAsync(t => t.UserId == dto.TeacherId);
+                    if (teacher == null || !await _context.Classes.AnyAsync(c => c.Id == dto.ClassId) || 
+                        !await _context.Subjects.AnyAsync(s => s.Id == dto.SubjectId))
+                    {
+                        skipped.Add(dto);
+                        continue;
+                    }
+
+                    // Avoid duplicates
+                    bool exists = await _context.SubjectAssignments
+                        .AnyAsync(sa => sa.SubjectId == dto.SubjectId && sa.ClassId == dto.ClassId);
+
+                    if (exists)
+                    {
+                        skipped.Add(dto);
+                        continue;
+                    }
+
+                    var assignment = new SubjectAssignment
+                    {
+                        TeacherId = teacher.Id,
+                        SubjectId = dto.SubjectId,
+                        ClassId = dto.ClassId
+                    };
+
+                    _context.SubjectAssignments.Add(assignment);
+                    assigned.Add(_mapper.Map<SubjectAssignmentResponseDto>(assignment));
                 }
 
-                // Check class and subject exist
-                var cls = await _context.Classes.FindAsync(dto.ClassId);
-                var subject = await _context.Subjects.FindAsync(dto.SubjectId);
-                if (cls == null || subject == null)
-                {
-                    skipped.Add(dto);
-                    continue; // skip invalid class/subject
-                }
-
-                // Check if this Subject+Class already exists
-                bool exists = await _context.SubjectAssignments
-                    .AnyAsync(sa => sa.SubjectId == dto.SubjectId && sa.ClassId == dto.ClassId);
-
-                if (exists)
-                {
-                    skipped.Add(dto); // duplicate, skip
-                    continue;
-                }
-
-                // Create assignment
-                var assignment = new SubjectAssignment
-                {
-                    TeacherId = teacher.Id,
-                    SubjectId = dto.SubjectId,
-                    ClassId = dto.ClassId
-                };
-
-                _context.SubjectAssignments.Add(assignment);
                 await _context.SaveChangesAsync();
 
-                assigned.Add(_mapper.Map<SubjectAssignmentResponseDto>(assignment));
+                return Ok(new
+                {
+                    AssignedCount = assigned.Count,
+                    SkippedCount = skipped.Count,
+                    Assigned = assigned,
+                    Skipped = skipped
+                });
             }
-
-            // Return summary
-            return Ok(new
+            catch (Exception ex)
             {
-                AssignedCount = assigned.Count,
-                SkippedCount = skipped.Count,
-                Assigned = assigned,
-                Skipped = skipped
-            });
+                _logger.LogError(ex, "Error assigning subjects to teachers");
+                return StatusCode(500, new { message = "An unexpected error occurred." });
+            }
         }
-
-
-
     }
 }
