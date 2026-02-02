@@ -29,6 +29,11 @@ builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
     options.Password.RequireNonAlphanumeric = true;
 
     options.SignIn.RequireConfirmedEmail = true; // require email confirmation
+
+    options.Lockout.MaxFailedAccessAttempts = 5;
+    options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+    options.Lockout.AllowedForNewUsers = true;
+
 })
 .AddEntityFrameworkStores<ApplicationDbContext>()
 .AddDefaultTokenProviders();
@@ -65,6 +70,11 @@ builder.Services.AddAutoMapper(typeof(AppMappingProfile));
 // --------------------
 // Other Services
 // --------------------
+
+builder.Services.Configure<DataProtectionTokenProviderOptions>(o =>
+    o.TokenLifespan = TimeSpan.FromHours(2));
+//This enfoces an email cofirmation token lifespan
+
 builder.Services.AddScoped<AuditService>();
 builder.Services.AddHttpContextAccessor();
 
@@ -109,6 +119,29 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+app.Use(async (context, next) =>
+{
+    context.Response.Headers.Add("X-Content-Type-Options", "nosniff");
+    context.Response.Headers.Add("X-Frame-Options", "DENY");
+    context.Response.Headers.Add("X-XSS-Protection", "1; mode=block");
+    await next();
+});
+//This is for api hardening as it secures the headers
+
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        context.Response.StatusCode = 500;
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsJsonAsync(new
+        {
+            message = "An unexpected server error occurred."
+        });
+    });
+});
+//This prevents the showing of the server 500 error
 
 app.UseAuthentication(); // must come before authorization
 app.UseAuthorization();
