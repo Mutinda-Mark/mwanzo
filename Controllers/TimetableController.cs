@@ -128,6 +128,29 @@ namespace mwanzo.Controllers
             }
         }
 
+
+        [HttpGet]
+        [Authorize(Roles = "Admin,Teacher")]
+        public async Task<IActionResult> GetAllTimetables()
+        {
+            try
+            {
+                var entries = await _context.TimetableEntries
+                    .AsNoTracking()
+                    .Include(te => te.Class)
+                    .Include(te => te.Subject)
+                    .ToListAsync();
+
+                return Ok(_mapper.Map<List<TimetableResponseDto>>(entries));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching all timetable entries");
+                return StatusCode(500, new { message = "An unexpected error occurred." });
+            }
+        }
+
+
         [HttpDelete("{id}")]
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> DeleteTimetable(int id)

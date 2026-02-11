@@ -82,6 +82,18 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("ReactCors", policy =>
+    {
+        policy.WithOrigins("http://localhost:5173")
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
+    });
+});
+
 // --------------------
 // Build the App
 // --------------------
@@ -142,6 +154,8 @@ app.UseExceptionHandler(errorApp =>
     });
 });
 //This prevents the showing of the server 500 error
+
+app.UseCors("ReactCors");
 
 app.UseAuthentication(); // must come before authorization
 app.UseAuthorization();

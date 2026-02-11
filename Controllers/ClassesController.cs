@@ -68,11 +68,16 @@ namespace mwanzo.Controllers
             {
                 var classes = await _context.Classes
                     .AsNoTracking()
-                    .Include(c => c.Students)
-                    .Include(c => c.TimetableEntries)
+                    .Select(c => new ClassResponseDto
+                    {
+                        Id = c.Id,
+                        Name = c.Name,
+                        Description = c.Description,
+                        StudentCount = c.Students.Count()
+                    })
                     .ToListAsync();
 
-                return Ok(_mapper.Map<List<ClassResponseDto>>(classes));
+                return Ok(classes);
             }
             catch (Exception ex)
             {
@@ -80,6 +85,7 @@ namespace mwanzo.Controllers
                 return StatusCode(500, new { message = "An unexpected error occurred." });
             }
         }
+
 
         /// <summary>
         /// Retrieves a single class by ID.

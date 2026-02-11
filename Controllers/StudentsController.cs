@@ -100,6 +100,30 @@ namespace mwanzo.Controllers
             }
         }
 
+        // GET ALL STUDENTS
+        [HttpGet]
+        [Authorize(Roles = "Admin,Teacher")]
+        public async Task<IActionResult> GetStudents()
+        {
+            try
+            {
+                var students = await _context.Students
+                    .AsNoTracking()
+                    .Include(s => s.User)
+                    .Include(s => s.Class)
+                    .OrderByDescending(s => s.Id)
+                    .ToListAsync();
+
+                return Ok(_mapper.Map<List<StudentResponseDto>>(students));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving students");
+                return StatusCode(500, new { message = "An unexpected error occurred." });
+            }
+        }
+
+
         // UPDATE STUDENT
         [HttpPut("{id}")]
         [Authorize(Roles = "Admin")]

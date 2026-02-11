@@ -125,6 +125,9 @@ namespace mwanzo.Controllers
                     new Claim(JwtRegisteredClaimNames.Sub, user.Email),
                     new Claim(ClaimTypes.NameIdentifier, user.Id),
                     new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+                    //new Claim(ClaimTypes.Role, roleName),
+                    //new Claim(ClaimTypes.NameIdentifier, user.Id)
+
                 };
 
                 claims.AddRange(roles.Select(r => new Claim(ClaimTypes.Role, r)));
