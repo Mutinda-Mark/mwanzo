@@ -38,21 +38,33 @@ export default function Dashboard() {
 
       {data && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {/* Admin DTO */}
-          {"totalStudents" in data && <StatCard label="Total Students" value={data.totalStudents} />}
-          {"totalTeachers" in data && <StatCard label="Total Teachers" value={data.totalTeachers} />}
-          {"totalClasses" in data && <StatCard label="Total Classes" value={data.totalClasses} />}
-          {"totalExams" in data && <StatCard label="Total Exams" value={data.totalExams} />}
+          {role === "Admin" && (
+            <>
+              <StatCard label="Total Students" value={data.totalStudents ?? 0} />
+              <StatCard label="Total Teachers" value={data.totalTeachers ?? 0} />
+              <StatCard label="Total Classes" value={data.totalClasses ?? 0} />
+              <StatCard label="Total Exams" value={data.totalExams ?? 0} />
+            </>
+          )}
 
-          {/* Teacher DTO */}
-          {"totalStudents" in data && !("totalTeachers" in data) && <StatCard label="Total Students" value={data.totalStudents} />}
-          {"totalClasses" in data && !("totalTeachers" in data) && <StatCard label="Total Classes" value={data.totalClasses} />}
-          {"totalExams" in data && !("totalTeachers" in data) && <StatCard label="Total Exams" value={data.totalExams} />}
+          {role === "Teacher" && (
+            <>
+              <StatCard label="Total Classes" value={data.totalClasses ?? 0} />
+              <StatCard label="Total Students" value={data.totalStudents ?? 0} />
+              <StatCard label="Total Exams" value={data.totalExams ?? 0} />
+            </>
+          )}
 
-          {/* Student DTO */}
-          {"className" in data && <StatCard label="Class" value={data.className || "—"} />}
-          {"totalExams" in data && !("totalTeachers" in data) && <StatCard label="Total Exams" value={data.totalExams} />}
-          {"averageGrade" in data && <StatCard label="Average Grade" value={Number(data.averageGrade).toFixed(2)} />}
+          {role === "Student" && (
+            <>
+              <StatCard label="Class" value={data.className || "—"} />
+              <StatCard label="Total Exams" value={data.totalExams ?? 0} />
+              <StatCard
+                label="Average Grade"
+                value={Number(data.averageGrade ?? 0).toFixed(2)}
+              />
+            </>
+          )}
         </div>
       )}
 

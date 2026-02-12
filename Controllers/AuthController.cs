@@ -55,19 +55,17 @@ namespace mwanzo.Controllers
                     return BadRequest(new { message = "Unable to complete registration.", errors = result.Errors });
                 }
 
-                // ✅ Role MUST be present now (nullable + required)
                 if (dto.Role == null)
                     return BadRequest(new { message = "Role is required." });
 
-                // ✅ Convert enum -> string role name used by Identity roles
                 var requestedRole = dto.Role.Value.ToString();
 
-                // ✅ SECURITY: don't allow Admin from public register (recommended)
+                // SECURITY: don't allow Admin from public register (recommended)
                 var allowedRoles = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 {
                     "Student",
                     "Teacher"
-                    // if you really want to allow Admin from register, add "Admin" here
+                    // Add "Admin" only if you truly want public admin creation (not recommended)
                 };
 
                 var roleToAssign = allowedRoles.Contains(requestedRole) ? requestedRole : "Student";
@@ -75,19 +73,23 @@ namespace mwanzo.Controllers
                 var roleResult = await _userManager.AddToRoleAsync(user, roleToAssign);
                 if (!roleResult.Succeeded)
                 {
-                    // rollback user if role assignment fails (optional but clean)
                     await _userManager.DeleteAsync(user);
                     return StatusCode(500, new { message = "User created but role assignment failed.", errors = roleResult.Errors });
                 }
 
                 var token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
-                var confirmLink = Url.Action(nameof(ConfirmEmail), "Auth",
-                    new { userId = user.Id, token }, Request.Scheme);
+
+                var confirmLink = Url.Action(
+                    nameof(ConfirmEmail),
+                    "Auth",
+                    new { userId = user.Id, token },
+                    Request.Scheme
+                );
 
                 return Ok(new
                 {
                     message = "User registered. Please confirm email.",
-                    confrimLink = confirmLink, // keeping your current frontend key
+                    confrimLink = confirmLink, // keeping your existing FE key
                     userId = user.Id,
                     roleAssigned = roleToAssign
                 });
@@ -103,7 +105,7 @@ namespace mwanzo.Controllers
         /// Confirms a user's email.
         /// </summary>
         [HttpGet("confirm-email")]
-        public async Task<IActionResult> ConfirmEmail(string userId, string token)
+        public async Task<IActionResult> ConfirmEmail([FromQuery] string userId, [FromQuery] string token)
         {
             var user = await _userManager.FindByIdAsync(userId);
             if (user == null)
@@ -123,7 +125,7 @@ namespace mwanzo.Controllers
         public async Task<IActionResult> Login([FromBody] LoginRequestDto dto)
         {
             if (!ModelState.IsValid)
-                return BadRequest(new { message = "Invalid request data." });
+                return BadRequest(new { message = "Invalid request data.", errors = ModelState });
 
             try
             {
@@ -138,19 +140,23 @@ namespace mwanzo.Controllers
 
                 var roles = await _userManager.GetRolesAsync(user);
 
+                // ✅ IMPORTANT: NameIdentifier MUST be AspNetUsers.Id (GUID)
+                // ✅ NEVER put Email into NameIdentifier
                 var claims = new List<Claim>
                 {
-                    new Claim(JwtRegisteredClaimNames.Sub, user.Email),
+                    new Claim(JwtRegisteredClaimNames.Sub, user.Email ?? ""),
                     new Claim(ClaimTypes.NameIdentifier, user.Id),
+                    new Claim(ClaimTypes.Email, user.Email ?? ""),
                     new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
-                    //new Claim(ClaimTypes.Role, roleName),
-                    //new Claim(ClaimTypes.NameIdentifier, user.Id)
-
                 };
 
                 claims.AddRange(roles.Select(r => new Claim(ClaimTypes.Role, r)));
 
-                var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"]));
+                var keyString = _config["Jwt:Key"];
+                if (string.IsNullOrWhiteSpace(keyString))
+                    return StatusCode(500, new { message = "JWT Key not configured." });
+
+                var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(keyString));
                 var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
                 var token = new JwtSecurityToken(
@@ -161,7 +167,10 @@ namespace mwanzo.Controllers
                     signingCredentials: creds
                 );
 
-                return Ok(new { token = new JwtSecurityTokenHandler().WriteToken(token) });
+                return Ok(new
+                {
+                    token = new JwtSecurityTokenHandler().WriteToken(token)
+                });
             }
             catch (Exception ex)
             {
