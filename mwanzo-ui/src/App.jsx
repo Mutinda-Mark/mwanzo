@@ -18,6 +18,8 @@ import Students from "./pages/Students";
 import Classes from "./pages/Classes";
 import Attendance from "./pages/Attendance";
 
+import Admin from "./pages/Admin";
+
 export default function App() {
   return (
     <Routes>
@@ -61,6 +63,15 @@ export default function App() {
             </RoleRoute>
           }
         />
+        <Route
+        path="admin-users"
+        element={
+          <RoleRoute allow={["Admin"]}>
+            <Admin />
+          </RoleRoute>
+        }
+      />
+
 
         {/* Teacher + Admin */}
         <Route

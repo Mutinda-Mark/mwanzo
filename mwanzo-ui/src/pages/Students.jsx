@@ -9,17 +9,22 @@ import DataTable from "../components/DataTable";
 import Modal from "../components/Modal";
 
 function pick(obj, keys, fallback = null) {
-  for (const k of keys) {
-    if (obj && obj[k] != null) return obj[k];
-  }
+  for (const k of keys) if (obj && obj[k] != null) return obj[k];
   return fallback;
+}
+
+function studentDisplayName(s) {
+  const first = pick(s, ["firstName", "FirstName"], "");
+  const last = pick(s, ["lastName", "LastName"], "");
+  const full = `${first} ${last}`.trim();
+  return full || pick(s, ["studentName", "StudentName"], "—");
 }
 
 export default function Students() {
   const qc = useQueryClient();
   const [err, setErr] = useState("");
 
-  // fetch by id (old behavior)
+  // fetch by id
   const [studentId, setStudentId] = useState("");
   const [fetchedStudent, setFetchedStudent] = useState(null);
 
@@ -97,25 +102,14 @@ export default function Students() {
   const columns = useMemo(
     () => [
       { key: "id", header: "ID" },
-      {
-        key: "name",
-        header: "Student",
-        render: (r) => {
-          const first = pick(r, ["firstName", "FirstName"]);
-          const last = pick(r, ["lastName", "LastName"]);
-          const full = `${first ?? ""} ${last ?? ""}`.trim();
-          return full || pick(r, ["studentName", "StudentName"], "—");
-        },
-      },
-      //{ key: "email", header: "Email", render: (r) => pick(r, ["email", "Email"], "—") },
-      //{ key: "classId", header: "Class ID", render: (r) => pick(r, ["classId", "ClassId"], "—") },
+      { key: "student", header: "Student", render: (r) => studentDisplayName(r) },
       { key: "className", header: "Class", render: (r) => pick(r, ["className", "ClassName"], "—") },
       {
         key: "enrolled",
         header: "Enrollment Date",
         render: (r) => {
           const d = pick(r, ["enrollmentDate", "EnrollmentDate"]);
-          return d ? String(d).slice(0, 10) : "";
+          return d ? String(d).slice(0, 10) : "—";
         },
       },
       {
@@ -173,7 +167,7 @@ export default function Students() {
 
       <ErrorBox message={err} />
 
-      {/* Fetch by ID (old behavior) */}
+      {/* Fetch by ID (clean display) */}
       <div className="bg-white border rounded-2xl p-4 space-y-3">
         <div className="font-semibold">Fetch Student by ID</div>
         <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
@@ -190,9 +184,69 @@ export default function Students() {
         </div>
 
         {fetchedStudent && (
-          <pre className="text-xs overflow-auto bg-slate-50 border rounded-lg p-3">
-            {JSON.stringify(fetchedStudent, null, 2)}
-          </pre>
+          <div className="border rounded-xl p-4 bg-slate-50">
+            <div className="text-sm text-slate-600 mb-2">Student Details</div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <div className="text-xs text-slate-500">ID</div>
+                <div className="font-medium">{pick(fetchedStudent, ["id", "Id"], "—")}</div>
+              </div>
+
+              <div>
+                <div className="text-xs text-slate-500">Name</div>
+                <div className="font-medium">{studentDisplayName(fetchedStudent)}</div>
+              </div>
+
+              <div>
+                <div className="text-xs text-slate-500">Email</div>
+                <div className="font-medium">{pick(fetchedStudent, ["email", "Email"], "—")}</div>
+              </div>
+
+              <div>
+                <div className="text-xs text-slate-500">Class</div>
+                <div className="font-medium">{pick(fetchedStudent, ["className", "ClassName"], "—")}</div>
+              </div>
+
+              <div>
+                <div className="text-xs text-slate-500">Enrollment Date</div>
+                <div className="font-medium">
+                  {pick(fetchedStudent, ["enrollmentDate", "EnrollmentDate"], null)
+                    ? String(pick(fetchedStudent, ["enrollmentDate", "EnrollmentDate"])).slice(0, 10)
+                    : "—"}
+                </div>
+              </div>
+                            <div className="flex gap-2 mt-4">
+                <button
+                    className="px-4 py-2 rounded-lg border hover:bg-slate-50"
+                    onClick={() => {
+                    // open your existing edit modal for this fetched student
+                    setEditing(fetchedStudent);
+                    setClassId(String(fetchedStudent.classId ?? ""));
+                    const d = fetchedStudent.enrollmentDate ? String(fetchedStudent.enrollmentDate).slice(0, 10) : "";
+                    setEnrollmentDate(d);
+                    setOpen(true);
+                    }}
+                >
+                    Edit
+                </button>
+
+                <button
+                    className="px-4 py-2 rounded-lg border border-red-200 text-red-700 hover:bg-red-50"
+                    onClick={async () => {
+                    const id = fetchedStudent.id;
+                    await deleteM.mutateAsync(id);
+                    setFetchedStudent(null);
+                    setStudentId("");
+                    }}
+                    disabled={deleteM.isPending}
+                >
+                    {deleteM.isPending ? "Deleting..." : "Delete"}
+                </button>
+                </div>
+
+            </div>
+          </div>
         )}
       </div>
 

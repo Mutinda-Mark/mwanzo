@@ -18,7 +18,7 @@ namespace mwanzo.DTOs
         public string LastName { get; set; } = string.Empty;
 
         [Required]
-        public UserRole Role { get; set; }
+        public UserRole? Role { get; set; }
 
         public string? AdmissionNumber { get; set; }
     }

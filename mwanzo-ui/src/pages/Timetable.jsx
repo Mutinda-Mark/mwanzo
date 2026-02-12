@@ -24,29 +24,26 @@ function pick(obj, keys, fallback = null) {
 export default function Timetable() {
   const [err, setErr] = useState("");
 
-  const [classId, setClassId] = useState("");
+  // filter by class (optional)
+  const [filterClassId, setFilterClassId] = useState("");
 
   // modal
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
 
-  // form fields
+  // modal fields (✅ includes classId now)
+  const [classId, setClassId] = useState("");
   const [day, setDay] = useState("1");
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
   const [subjectId, setSubjectId] = useState("");
 
-  // 1) ALL entries (now from /api/Timetable)
-  const allQ = useQuery({
-    queryKey: ["timetableAll"],
-    queryFn: getAllTimetables,
-  });
+  const allQ = useQuery({ queryKey: ["timetableAll"], queryFn: getAllTimetables });
 
-  // 2) class-specific entries
   const classQ = useQuery({
-    queryKey: ["timetableByClass", classId],
-    queryFn: () => getTimetableByClass(Number(classId)),
-    enabled: !!classId,
+    queryKey: ["timetableByClass", filterClassId],
+    queryFn: () => getTimetableByClass(Number(filterClassId)),
+    enabled: !!filterClassId,
   });
 
   const allRows = Array.isArray(allQ.data) ? allQ.data : [];
@@ -64,9 +61,8 @@ export default function Timetable() {
     onSuccess: async () => {
       setErr("");
       setOpen(false);
-      setEditing(null);
-      allQ.refetch();
-      classQ.refetch();
+      await allQ.refetch();
+      if (filterClassId) await classQ.refetch();
     },
     onError: (e) => setErr(getApiError(e)),
   });
@@ -84,8 +80,8 @@ export default function Timetable() {
       setErr("");
       setOpen(false);
       setEditing(null);
-      allQ.refetch();
-      classQ.refetch();
+      await allQ.refetch();
+      if (filterClassId) await classQ.refetch();
     },
     onError: (e) => setErr(getApiError(e)),
   });
@@ -94,18 +90,15 @@ export default function Timetable() {
     mutationFn: (id) => deleteTimetableEntry(id),
     onSuccess: async () => {
       setErr("");
-      allQ.refetch();
-      classQ.refetch();
+      await allQ.refetch();
+      if (filterClassId) await classQ.refetch();
     },
     onError: (e) => setErr(getApiError(e)),
   });
 
   const openCreate = () => {
-    if (!classId) {
-      setErr("Enter Class ID first (needed for creating a timetable entry).");
-      return;
-    }
     setEditing(null);
+    setClassId(""); // ✅ not tied to filter
     setDay("1");
     setStartTime("");
     setEndTime("");
@@ -117,10 +110,14 @@ export default function Timetable() {
     () => [
       { key: "id", header: "ID" },
       { key: "classId", header: "Class ID" },
-      { key: "className", header: "Class", render: (r) => pick(r, ["className", "ClassName"], pick(pick(r, ["class", "Class"], {}), ["name", "Name"], "—")) },
+      { key: "className", header: "Class", render: (r) => pick(r, ["className", "ClassName"], "—") },
       { key: "subjectId", header: "Subject ID" },
-      { key: "subjectName", header: "Subject", render: (r) => pick(r, ["subjectName", "SubjectName"], pick(pick(r, ["subject", "Subject"], {}), ["name", "Name"], "—")) },
-      { key: "day", header: "Day", render: (r) => dayNames[pick(r, ["day", "Day"], 0)] ?? String(pick(r, ["day", "Day"], "")) },
+      { key: "subjectName", header: "Subject", render: (r) => pick(r, ["subjectName", "SubjectName"], "—") },
+      {
+        key: "day",
+        header: "Day",
+        render: (r) => dayNames[pick(r, ["day", "Day"], 0)] ?? String(pick(r, ["day", "Day"], "")),
+      },
       { key: "startTime", header: "Start" },
       { key: "endTime", header: "End" },
     ],
@@ -129,9 +126,14 @@ export default function Timetable() {
 
   const classColumns = useMemo(
     () => [
-      { key: "id", header: "ID" },
+      //{ key: "id", header: "ID" },
       { key: "subjectId", header: "Subject ID" },
-      { key: "day", header: "Day", render: (r) => dayNames[pick(r, ["day", "Day"], 0)] ?? String(pick(r, ["day", "Day"], "")) },
+      { key: "subjectName", header: "Subject", render: (r) => pick(r, ["subjectName", "SubjectName"], "—") },
+      {
+        key: "day",
+        header: "Day",
+        render: (r) => dayNames[pick(r, ["day", "Day"], 0)] ?? String(pick(r, ["day", "Day"], "")),
+      },
       { key: "startTime", header: "Start" },
       { key: "endTime", header: "End" },
       {
@@ -143,6 +145,7 @@ export default function Timetable() {
               className="px-3 py-1 rounded-lg border hover:bg-slate-50"
               onClick={() => {
                 setEditing(r);
+                setClassId(String(pick(r, ["classId", "ClassId"], "")));
                 setDay(String(pick(r, ["day", "Day"], 1)));
                 setStartTime(pick(r, ["startTime", "StartTime"], ""));
                 setEndTime(pick(r, ["endTime", "EndTime"], ""));
@@ -171,16 +174,15 @@ export default function Timetable() {
       <div className="bg-white border rounded-2xl p-4 flex items-center justify-between">
         <div>
           <div className="text-lg font-semibold">Timetable</div>
-          <div className="text-sm text-slate-600">Now shows ALL entries + by class + CRUD.</div>
+          <div className="text-sm text-slate-600">Create/edit entries from the New button (Class ID is entered in the modal).</div>
         </div>
-        <button className="px-4 py-2 rounded-lg bg-slate-900 text-white hover:opacity-90" onClick={openCreate} disabled={!classId}>
-          + New (for class)
+        <button className="px-4 py-2 rounded-lg bg-slate-900 text-white hover:opacity-90" onClick={openCreate}>
+          + New
         </button>
       </div>
 
       <ErrorBox message={err} />
 
-      {/* ALL */}
       <div className="bg-white border rounded-2xl p-4 space-y-2">
         <div className="font-semibold">All Timetable Entries</div>
         {allQ.isLoading && <Spinner />}
@@ -188,17 +190,19 @@ export default function Timetable() {
         <DataTable columns={allColumns} rows={allRows} />
       </div>
 
-      {/* BY CLASS */}
       <div className="bg-white border rounded-2xl p-4 space-y-3">
         <div className="font-semibold">Timetable by Class</div>
-        <Field label="Class ID" value={classId} onChange={(e) => setClassId(e.target.value)} />
-        {classQ.isLoading && !!classId && <Spinner />}
+        <Field label="Class ID (filter)" value={filterClassId} onChange={(e) => setFilterClassId(e.target.value)} />
+        {classQ.isLoading && !!filterClassId && <Spinner />}
         {classQ.isError && <ErrorBox message={getApiError(classQ.error)} />}
         <DataTable columns={classColumns} rows={classRows} />
       </div>
 
-      <Modal open={open} title={editing ? `Edit Entry #${pick(editing, ["id", "Id"])}` : "Create Entry"} onClose={() => setOpen(false)}>
+      <Modal open={open} title={editing ? `Edit Entry #${pick(editing, ["id", "Id"])}` : "Create Timetable Entry"} onClose={() => setOpen(false)}>
         <div className="space-y-3">
+          <Field label="Class ID" value={classId} onChange={(e) => setClassId(e.target.value)} />
+          <Field label="Subject ID" value={subjectId} onChange={(e) => setSubjectId(e.target.value)} />
+
           <label className="block">
             <div className="text-sm text-slate-700 mb-1">Day</div>
             <select className="w-full px-3 py-2 border rounded-lg bg-white" value={day} onChange={(e) => setDay(e.target.value)}>
@@ -214,8 +218,6 @@ export default function Timetable() {
             <Field label="Start Time (HH:mm or HH:mm:ss)" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
             <Field label="End Time (HH:mm or HH:mm:ss)" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
           </div>
-
-          <Field label="Subject ID" value={subjectId} onChange={(e) => setSubjectId(e.target.value)} />
 
           <button
             className="w-full px-4 py-2 rounded-lg bg-slate-900 text-white hover:opacity-90 disabled:opacity-60"

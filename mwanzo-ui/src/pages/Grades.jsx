@@ -7,6 +7,11 @@ import ErrorBox from "../components/ErrorBox";
 import Modal from "../components/Modal";
 import DataTable from "../components/DataTable";
 
+function pick(obj, keys, fallback = null) {
+  for (const k of keys) if (obj && obj[k] != null) return obj[k];
+  return fallback;
+}
+
 export default function Grades() {
   const [err, setErr] = useState("");
 
@@ -40,6 +45,10 @@ export default function Grades() {
     onSuccess: (data) => {
       setErr("");
       setGrade(data);
+
+      // ✅ Auto-show created grade in fetch area
+      const id = pick(data, ["id", "Id"], null);
+      if (id != null) setGradeId(String(id));
     },
     onError: (e) => setErr(getApiError(e)),
   });
@@ -64,7 +73,7 @@ export default function Grades() {
 
   const updateM = useMutation({
     mutationFn: () =>
-      updateGrade(grade.id, {
+      updateGrade(pick(grade, ["id", "Id"]), {
         marks: Number(editMarks),
         comments: editComments,
       }),
@@ -96,6 +105,7 @@ export default function Grades() {
 
       <ErrorBox message={err} />
 
+      {/* Create Grade */}
       <div className="bg-white border rounded-2xl p-4 space-y-3">
         <div className="font-semibold">Create Grade</div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -113,26 +123,59 @@ export default function Grades() {
         </button>
       </div>
 
+      {/* Fetch Grade */}
       <div className="bg-white border rounded-2xl p-4 space-y-3">
         <div className="font-semibold">Fetch Grade</div>
         <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
           <div className="flex-1">
             <Field label="Grade ID" value={gradeId} onChange={(e) => setGradeId(e.target.value)} />
           </div>
-          <button className="px-4 py-2 rounded-lg border hover:bg-slate-50" onClick={() => fetchM.mutate()} disabled={!gradeId || fetchM.isPending}>
+          <button
+            className="px-4 py-2 rounded-lg border hover:bg-slate-50"
+            onClick={() => fetchM.mutate()}
+            disabled={!gradeId || fetchM.isPending}
+          >
             {fetchM.isPending ? "Fetching..." : "Fetch"}
           </button>
         </div>
 
         {grade && (
-          <div className="space-y-2">
-            <pre className="text-xs overflow-auto bg-slate-50 border rounded-lg p-3">{JSON.stringify(grade, null, 2)}</pre>
+          <div className="border rounded-xl p-4 bg-slate-50 space-y-3">
+            <div className="text-sm text-slate-600">Grade Details</div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <div className="text-xs text-slate-500">Grade ID</div>
+                <div className="font-medium">{pick(grade, ["id", "Id"], "—")}</div>
+              </div>
+
+              <div>
+                <div className="text-xs text-slate-500">Student</div>
+                <div className="font-medium">{pick(grade, ["studentName", "StudentName"], "—")}</div>
+              </div>
+
+              <div>
+                <div className="text-xs text-slate-500">Exam</div>
+                <div className="font-medium">{pick(grade, ["examName", "ExamName"], "—")}</div>
+              </div>
+
+              <div>
+                <div className="text-xs text-slate-500">Marks</div>
+                <div className="font-medium">{pick(grade, ["marks", "Marks"], "—")}</div>
+              </div>
+
+              <div className="sm:col-span-2">
+                <div className="text-xs text-slate-500">Comments</div>
+                <div className="font-medium">{pick(grade, ["comments", "Comments"], "—")}</div>
+              </div>
+            </div>
+
             <div className="flex gap-2">
               <button
                 className="px-4 py-2 rounded-lg border hover:bg-slate-50"
                 onClick={() => {
-                  setEditMarks(String(grade.marks ?? ""));
-                  setEditComments(grade.comments ?? "");
+                  setEditMarks(String(pick(grade, ["marks", "Marks"], "")));
+                  setEditComments(pick(grade, ["comments", "Comments"], ""));
                   setOpen(true);
                 }}
               >
@@ -140,7 +183,7 @@ export default function Grades() {
               </button>
               <button
                 className="px-4 py-2 rounded-lg border border-red-200 text-red-700 hover:bg-red-50"
-                onClick={() => deleteM.mutate(grade.id)}
+                onClick={() => deleteM.mutate(pick(grade, ["id", "Id"]))}
                 disabled={deleteM.isPending}
               >
                 Delete
@@ -150,13 +193,18 @@ export default function Grades() {
         )}
       </div>
 
+      {/* Student Report */}
       <div className="bg-white border rounded-2xl p-4 space-y-3">
         <div className="font-semibold">Student Report</div>
         <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
           <div className="flex-1">
             <Field label="Student ID" value={reportStudentId} onChange={(e) => setReportStudentId(e.target.value)} />
           </div>
-          <button className="px-4 py-2 rounded-lg border hover:bg-slate-50" onClick={() => reportM.mutate()} disabled={!reportStudentId || reportM.isPending}>
+          <button
+            className="px-4 py-2 rounded-lg border hover:bg-slate-50"
+            onClick={() => reportM.mutate()}
+            disabled={!reportStudentId || reportM.isPending}
+          >
             {reportM.isPending ? "Loading..." : "Get Report"}
           </button>
         </div>
@@ -176,17 +224,21 @@ export default function Grades() {
                 { key: "marks", header: "Marks" },
                 { key: "comments", header: "Comments" },
               ]}
-              rows={reportRows}
+              rows={Array.isArray(reportRows) ? reportRows : []}
             />
           </div>
         )}
       </div>
 
-      <Modal open={open} title={grade ? `Edit Grade #${grade.id}` : "Edit Grade"} onClose={() => setOpen(false)}>
+      <Modal open={open} title={grade ? `Edit Grade #${pick(grade, ["id", "Id"])}` : "Edit Grade"} onClose={() => setOpen(false)}>
         <div className="space-y-3">
           <Field label="Marks" value={editMarks} onChange={(e) => setEditMarks(e.target.value)} />
           <Field label="Comments" value={editComments} onChange={(e) => setEditComments(e.target.value)} />
-          <button className="w-full px-4 py-2 rounded-lg bg-slate-900 text-white hover:opacity-90 disabled:opacity-60" onClick={() => updateM.mutate()} disabled={updateM.isPending}>
+          <button
+            className="w-full px-4 py-2 rounded-lg bg-slate-900 text-white hover:opacity-90 disabled:opacity-60"
+            onClick={() => updateM.mutate()}
+            disabled={updateM.isPending}
+          >
             {updateM.isPending ? "Saving..." : "Save"}
           </button>
         </div>

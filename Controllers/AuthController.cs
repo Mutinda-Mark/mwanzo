@@ -34,7 +34,7 @@ namespace mwanzo.Controllers
         public async Task<IActionResult> Register([FromBody] RegisterRequestDto dto)
         {
             if (!ModelState.IsValid)
-                return BadRequest(new { message = "Invalid request data." });
+                return BadRequest(new { message = "Invalid request data.", errors = ModelState });
 
             try
             {
@@ -52,27 +52,45 @@ namespace mwanzo.Controllers
                 if (!result.Succeeded)
                 {
                     _logger.LogWarning("User registration failed for {Email}", dto.Email);
-                    return BadRequest(new { message = "Unable to complete registration." });
+                    return BadRequest(new { message = "Unable to complete registration.", errors = result.Errors });
                 }
 
-                // SAFE ROLE ASSIGNMENT
-                var requestedRole = dto.Role.ToString();
+                // ✅ Role MUST be present now (nullable + required)
+                if (dto.Role == null)
+                    return BadRequest(new { message = "Role is required." });
 
-                var allowedRoles = new[] { "Admin","Student", "Teacher" };
-               
-                var roleToAssign = allowedRoles.Contains(requestedRole)
-                    ? requestedRole
-                    : "Student";
+                // ✅ Convert enum -> string role name used by Identity roles
+                var requestedRole = dto.Role.Value.ToString();
 
-                await _userManager.AddToRoleAsync(user, roleToAssign);
+                // ✅ SECURITY: don't allow Admin from public register (recommended)
+                var allowedRoles = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    "Student",
+                    "Teacher"
+                    // if you really want to allow Admin from register, add "Admin" here
+                };
+
+                var roleToAssign = allowedRoles.Contains(requestedRole) ? requestedRole : "Student";
+
+                var roleResult = await _userManager.AddToRoleAsync(user, roleToAssign);
+                if (!roleResult.Succeeded)
+                {
+                    // rollback user if role assignment fails (optional but clean)
+                    await _userManager.DeleteAsync(user);
+                    return StatusCode(500, new { message = "User created but role assignment failed.", errors = roleResult.Errors });
+                }
 
                 var token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
                 var confirmLink = Url.Action(nameof(ConfirmEmail), "Auth",
                     new { userId = user.Id, token }, Request.Scheme);
 
-                // TODO: Send confirmLink via email service
-
-                return Ok(new { message = "User registered. Please confirm email.", ConfrimLink = confirmLink });
+                return Ok(new
+                {
+                    message = "User registered. Please confirm email.",
+                    confrimLink = confirmLink, // keeping your current frontend key
+                    userId = user.Id,
+                    roleAssigned = roleToAssign
+                });
             }
             catch (Exception ex)
             {

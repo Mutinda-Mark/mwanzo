@@ -11,13 +11,22 @@ export async function createTeacher(payload) {
   return res.data;
 }
 
-// expects an array: [{ teacherId: "<USER_GUID>", subjectId: 1, classId: 2 }, ...]
+// POST /api/Teachers/assign-subject
+// payloadArray: [{ teacherId: "<USER_GUID>", subjectId: 1, classId: 2 }, ...]
 export async function assignSubjects(payloadArray) {
   const res = await api.post(endpoints.teacherAssignSubject, payloadArray);
   return res.data;
 }
 
-export async function assignSubject(payloadArray) {
-  const { data } = await client.post("/api/Teachers/assign-subject", payloadArray);
-  return data;
+// PUT /api/Teachers/assign-subject/{assignmentId}
+// payload: { subjectId: number, classId: number }
+export async function updateAssignment(assignmentId, payload) {
+  const res = await api.put(`/api/Teachers/assign-subject/${assignmentId}`, payload);
+  return res.data;
+}
+
+// DELETE /api/Teachers/assign-subject/{assignmentId}
+export async function deleteAssignment(assignmentId) {
+  const res = await api.delete(`/api/Teachers/assign-subject/${assignmentId}`);
+  return res.data;
 }

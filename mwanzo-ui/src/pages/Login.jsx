@@ -11,8 +11,8 @@ export default function Login() {
   const nav = useNavigate();
   const { loginWithToken } = useAuth();
 
-  const [email, setEmail] = useState("admin@agile.com");
-  const [password, setPassword] = useState("Admin@123");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
 
   const m = useMutation({

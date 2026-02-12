@@ -17,6 +17,7 @@ export default function Nav() {
 
   const links = [
     { to: "/dashboard", label: "Dashboard", roles: ["Admin", "Teacher", "Student"] },
+    { to: "/admin-users", label: "Users", roles: ["Admin"] },
     { to: "/subjects", label: "Subjects", roles: ["Admin"] },
     { to: "/classes", label: "Classes", roles: ["Admin"] },
     { to: "/teachers", label: "Teachers", roles: ["Admin"] },
@@ -32,22 +33,27 @@ export default function Nav() {
       <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="font-semibold">Mwanzo</div>
-          <div className="text-xs text-slate-500">Role: {role || "Unknown"}</div>
+          <div className="text-xs text-slate-500">Role: {role || "Unknown"}</div> 
         </div>
 
-        <nav className="flex flex-wrap gap-2 justify-end">
-          {links
-            .filter((l) => l.roles.includes(role))
-            .map((l) => (
-              <NavLink
-                key={l.to}
-                to={l.to}
-                className={({ isActive }) => `${linkBase} ${isActive ? active : idle}`}
-              >
-                {l.label}
-              </NavLink>
-            ))}
+        <nav className="flex-1 overflow-x-auto">
+            <div className="flex gap-2 whitespace-nowrap">
+                {links
+                .filter((l) => l.roles.includes(role))
+                .map((l) => (
+                    <NavLink
+                    key={l.to}
+                    to={l.to}
+                    className={({ isActive }) =>
+                        `${linkBase} ${isActive ? active : idle}`
+                    }
+                    >
+                    {l.label}
+                    </NavLink>
+                ))}
+            </div>
         </nav>
+
 
         <div className="flex items-center gap-3">
           <div className="text-xs text-slate-600 hidden sm:block">{user?.email || ""}</div>

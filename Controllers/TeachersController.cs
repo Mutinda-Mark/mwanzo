@@ -36,16 +36,18 @@ namespace mwanzo.Controllers
                 var user = await _context.Users.FindAsync(dto.UserId);
                 if (user == null) return BadRequest(new { message = "Invalid user ID" });
 
+                // OPTIONAL safety check: prevent duplicate teacher rows for same userId
+                bool alreadyTeacher = await _context.Teachers.AnyAsync(t => t.UserId == dto.UserId);
+                if (alreadyTeacher) return BadRequest(new { message = "A teacher already exists for this user ID." });
+
                 var teacher = new Teacher { UserId = dto.UserId };
                 _context.Teachers.Add(teacher);
                 await _context.SaveChangesAsync();
 
                 var response = await _context.Teachers
                     .Include(t => t.User)
-                    .Include(t => t.SubjectAssignments)
-                        .ThenInclude(sa => sa.Class)
-                    .Include(t => t.SubjectAssignments)
-                        .ThenInclude(sa => sa.Subject)
+                    .Include(t => t.SubjectAssignments).ThenInclude(sa => sa.Class)
+                    .Include(t => t.SubjectAssignments).ThenInclude(sa => sa.Subject)
                     .AsNoTracking()
                     .FirstOrDefaultAsync(t => t.Id == teacher.Id);
 
@@ -67,10 +69,8 @@ namespace mwanzo.Controllers
             {
                 var teachers = await _context.Teachers
                     .Include(t => t.User)
-                    .Include(t => t.SubjectAssignments)
-                        .ThenInclude(sa => sa.Class)
-                    .Include(t => t.SubjectAssignments)
-                        .ThenInclude(sa => sa.Subject)
+                    .Include(t => t.SubjectAssignments).ThenInclude(sa => sa.Class)
+                    .Include(t => t.SubjectAssignments).ThenInclude(sa => sa.Subject)
                     .AsNoTracking()
                     .ToListAsync();
 
@@ -90,24 +90,35 @@ namespace mwanzo.Controllers
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
 
-            var assigned = new List<SubjectAssignmentResponseDto>();
+            var createdAssignments = new List<SubjectAssignment>();
             var skipped = new List<SubjectAssignmentCreateDto>();
 
             try
             {
                 foreach (var dto in dtos)
                 {
+                    // TeacherId in DTO is the GUID UserId (AspNetUsers.Id)
                     var teacher = await _context.Teachers.FirstOrDefaultAsync(t => t.UserId == dto.TeacherId);
-                    if (teacher == null || !await _context.Classes.AnyAsync(c => c.Id == dto.ClassId) || 
-                        !await _context.Subjects.AnyAsync(s => s.Id == dto.SubjectId))
+                    if (teacher == null)
                     {
                         skipped.Add(dto);
                         continue;
                     }
 
-                    // Avoid duplicates
-                    bool exists = await _context.SubjectAssignments
-                        .AnyAsync(sa => sa.SubjectId == dto.SubjectId && sa.ClassId == dto.ClassId);
+                    bool classExists = await _context.Classes.AnyAsync(c => c.Id == dto.ClassId);
+                    bool subjectExists = await _context.Subjects.AnyAsync(s => s.Id == dto.SubjectId);
+
+                    if (!classExists || !subjectExists)
+                    {
+                        skipped.Add(dto);
+                        continue;
+                    }
+
+                    // Avoid duplicates PER TEACHER
+                    bool exists = await _context.SubjectAssignments.AnyAsync(sa =>
+                        sa.TeacherId == teacher.Id &&
+                        sa.SubjectId == dto.SubjectId &&
+                        sa.ClassId == dto.ClassId);
 
                     if (exists)
                     {
@@ -123,22 +134,103 @@ namespace mwanzo.Controllers
                     };
 
                     _context.SubjectAssignments.Add(assignment);
-                    assigned.Add(_mapper.Map<SubjectAssignmentResponseDto>(assignment));
+                    createdAssignments.Add(assignment);
                 }
 
                 await _context.SaveChangesAsync();
 
+                // Reload created assignments with Subject + Class to populate SubjectName/ClassName + Ids
+                var createdIds = createdAssignments.Select(a => a.Id).ToList();
+
+                var reloaded = await _context.SubjectAssignments
+                    .AsNoTracking()
+                    .Where(sa => createdIds.Contains(sa.Id))
+                    .Include(sa => sa.Subject)
+                    .Include(sa => sa.Class)
+                    .ToListAsync();
+
+                var assignedDtos = _mapper.Map<List<SubjectAssignmentResponseDto>>(reloaded);
+
                 return Ok(new
                 {
-                    AssignedCount = assigned.Count,
+                    AssignedCount = assignedDtos.Count,
                     SkippedCount = skipped.Count,
-                    Assigned = assigned,
+                    Assigned = assignedDtos,
                     Skipped = skipped
                 });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error assigning subjects to teachers");
+                return StatusCode(500, new { message = "An unexpected error occurred." });
+            }
+        }
+
+        // UPDATE an assignment (Admin only)
+        [HttpPut("assign-subject/{assignmentId}")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> UpdateAssignment(int assignmentId, [FromBody] SubjectAssignmentUpdateDto dto)
+        {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+
+            try
+            {
+                var assignment = await _context.SubjectAssignments.FindAsync(assignmentId);
+                if (assignment == null) return NotFound(new { message = "Assignment not found." });
+
+                bool classExists = await _context.Classes.AnyAsync(c => c.Id == dto.ClassId);
+                bool subjectExists = await _context.Subjects.AnyAsync(s => s.Id == dto.SubjectId);
+                if (!classExists || !subjectExists)
+                    return BadRequest(new { message = "Invalid class or subject." });
+
+                // Avoid duplicates PER TEACHER
+                bool exists = await _context.SubjectAssignments.AnyAsync(sa =>
+                    sa.Id != assignmentId &&
+                    sa.TeacherId == assignment.TeacherId &&
+                    sa.SubjectId == dto.SubjectId &&
+                    sa.ClassId == dto.ClassId);
+
+                if (exists) return BadRequest(new { message = "Duplicate assignment exists for this teacher." });
+
+                assignment.ClassId = dto.ClassId;
+                assignment.SubjectId = dto.SubjectId;
+
+                await _context.SaveChangesAsync();
+
+                // Reload with subject & class so names are included
+                var reloaded = await _context.SubjectAssignments
+                    .AsNoTracking()
+                    .Include(sa => sa.Class)
+                    .Include(sa => sa.Subject)
+                    .FirstAsync(sa => sa.Id == assignmentId);
+
+                return Ok(_mapper.Map<SubjectAssignmentResponseDto>(reloaded));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating subject assignment");
+                return StatusCode(500, new { message = "An unexpected error occurred." });
+            }
+        }
+
+        // DELETE an assignment (Admin only)
+        [HttpDelete("assign-subject/{assignmentId}")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> DeleteAssignment(int assignmentId)
+        {
+            try
+            {
+                var assignment = await _context.SubjectAssignments.FindAsync(assignmentId);
+                if (assignment == null) return NotFound(new { message = "Assignment not found." });
+
+                _context.SubjectAssignments.Remove(assignment);
+                await _context.SaveChangesAsync();
+
+                return NoContent();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error deleting subject assignment");
                 return StatusCode(500, new { message = "An unexpected error occurred." });
             }
         }

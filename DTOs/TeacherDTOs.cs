@@ -19,23 +19,33 @@ namespace mwanzo.DTOs
     }
 
     public class SubjectAssignmentCreateDto
-    {
-        [Required]
-        public string TeacherId { get; set; }
+{
+    [Required]
+    public string TeacherId { get; set; }
 
-        [Required]
-        public int SubjectId { get; set; }
+    [Required]
+    public int SubjectId { get; set; }
 
-        [Required]
-        public int ClassId { get; set; }
-    }
+    [Required]
+    public int ClassId { get; set; }
+}
 
-    public class SubjectAssignmentResponseDto
-    {
-        public int Id { get; set; }
-        public int SubjectId { get; set; }
-        public string SubjectName { get; set; } = string.Empty;
-        public int ClassId { get; set; }
-        public string ClassName { get; set; } = string.Empty;
-    }
+public class SubjectAssignmentUpdateDto
+{
+    [Required]
+    public int SubjectId { get; set; }
+
+    [Required]
+    public int ClassId { get; set; }
+}
+
+public class SubjectAssignmentResponseDto
+{
+    public int Id { get; set; }
+    public int SubjectId { get; set; }
+    public string SubjectName { get; set; } = string.Empty;
+    public int ClassId { get; set; }
+    public string ClassName { get; set; } = string.Empty;
+}
+
 }

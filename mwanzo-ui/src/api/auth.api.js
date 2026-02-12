@@ -2,6 +2,7 @@ import { api } from "./client";
 import { endpoints } from "./endpoints";
 
 export async function register(payload) {
+  console.log("auth.api register payload:", payload);
   const res = await api.post(endpoints.auth.register, payload);
   return res.data;
 }

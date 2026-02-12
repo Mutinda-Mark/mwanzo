@@ -70,6 +70,8 @@ namespace mwanzo.MappingProfiles
             CreateMap<SubjectCreateDto, Subject>();
             CreateMap<SubjectUpdateDto, Subject>();
             CreateMap<Subject, SubjectResponseDto>();
+            
+
 
         }
     }
