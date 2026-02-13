@@ -140,8 +140,6 @@ namespace mwanzo.Controllers
 
                 var roles = await _userManager.GetRolesAsync(user);
 
-                // ✅ IMPORTANT: NameIdentifier MUST be AspNetUsers.Id (GUID)
-                // ✅ NEVER put Email into NameIdentifier
                 var claims = new List<Claim>
                 {
                     new Claim(JwtRegisteredClaimNames.Sub, user.Email ?? ""),
